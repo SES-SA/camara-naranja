@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#ff7a00">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Cámara">
+<title>Cámara Naranja</title>
+<style>
+:root{--bg:#fff;--fg:#1c1c1e;--card:#f2f2f4;--line:#d8d8dc;--or:#ff7a00;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121214;--fg:#f5f5f7;--card:#1f1f23;--line:#38383d;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#121214;--fg:#f5f5f7;--card:#1f1f23;--line:#38383d;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:480px;margin:0 auto;padding:20px;min-height:100%;display:flex;flex-direction:column;gap:14px}
+h1{font-size:22px;margin:8px 0 0}
+p.s{margin:0;color:var(--fg);opacity:.7;font-size:14px}
+input{width:100%;padding:14px;font-size:16px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg)}
+button{font:inherit;font-size:16px;padding:14px;border-radius:12px;border:0;background:var(--or);color:#fff;font-weight:600;cursor:pointer}
+button.g{background:var(--card);color:var(--fg);border:1px solid var(--line)}
+.err{color:#d93025;font-size:14px;min-height:18px}
+.cam{position:relative;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:3/4;border:4px solid var(--or)}
+video{width:100%;height:100%;object-fit:cover;display:block}
+.row{display:flex;gap:10px;align-items:center}
+.row>*{flex:1}
+.shot{flex:0 0 76px!important;height:76px;border-radius:50%;border:5px solid var(--or);background:#fff;padding:0}
+.gal{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.gal div{background:var(--card);border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+.gal img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+.gal a{display:block;text-align:center;font-size:13px;padding:6px;color:var(--or);text-decoration:none;font-weight:600}
+.hide{display:none}
+</style>
+</head>
+<body>
+<div class="wrap" id="login">
+  <h1 id="lt">Cámara Naranja</h1>
+  <p class="s" id="ls"></p>
+  <input id="u" placeholder="Usuario" autocomplete="username" autocapitalize="none">
+  <input id="p" type="password" placeholder="Contraseña" autocomplete="current-password">
+  <div class="err" id="err"></div>
+  <button id="go">Entrar</button>
+</div>
+
+<div class="wrap hide" id="app">
+  <div class="row"><h1 style="flex:2">Cámara</h1><button class="g" id="out">Salir</button></div>
+  <div class="cam"><video id="v" autoplay playsinline muted></video></div>
+  <input id="cod" placeholder="Código" autocomplete="off">
+  <input id="dir" placeholder="Dirección" autocomplete="off">
+  <div class="err" id="cerr"></div>
+  <div class="row">
+    <button class="g" id="flip">Girar cámara</button>
+    <button class="shot" id="snap" aria-label="Sacar foto"></button>
+    <span></span>
+  </div>
+  <div class="gal" id="gal"></div>
+</div>
+
+<script>
+var $=function(i){return document.getElementById(i)};
+var KEY="camnaranja_cred", stream=null, facing="environment", n=0;
+
+function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
+function lsSet(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+
+async function hash(s){
+  try{
+    var b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode("cn:"+s));
+    return Array.from(new Uint8Array(b)).map(function(x){return x.toString(16).padStart(2,"0")}).join("");
+  }catch(e){return btoa(unescape(encodeURIComponent("cn:"+s)))}
+}
+
+var saved=lsGet(KEY);
+function setupLogin(){
+  if(saved){$("ls").textContent="Ingresá con tu usuario y contraseña.";$("go").textContent="Entrar"}
+  else{$("ls").textContent="Primer uso: elegí tu usuario y contraseña.";$("go").textContent="Crear y entrar"}
+}
+setupLogin();
+
+$("go").onclick=async function(){
+  var u=$("u").value.trim(),p=$("p").value;
+  if(!u||p.length<4){$("err").textContent="Usuario y contraseña (mín. 4 caracteres).";return}
+  var h=await hash(u+"|"+p);
+  if(!saved){lsSet(KEY,h);saved=h}
+  else if(saved!==h){$("err").textContent="Usuario o contraseña incorrectos.";return}
+  $("err").textContent="";$("p").value="";
+  $("login").classList.add("hide");$("app").classList.remove("hide");
+  startCam();
+};
+
+$("out").onclick=function(){
+  stopCam();$("app").classList.add("hide");$("login").classList.remove("hide");setupLogin();
+};
+
+async function startCam(){
+  stopCam();$("cerr").textContent="";
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing},width:{ideal:1920},height:{ideal:1440}},audio:false});
+    $("v").srcObject=stream;
+  }catch(e){
+    $("cerr").textContent="No se pudo abrir la cámara. Permití el acceso a la cámara en el navegador.";
+  }
+}
+function stopCam(){if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null}}
+$("flip").onclick=function(){facing=facing==="environment"?"user":"environment";startCam()};
+
+function pad(x){return String(x).padStart(2,"0")}
+function stampText(){
+  var d=new Date();
+  return pad(d.getDate())+"/"+pad(d.getMonth()+1)+"/"+d.getFullYear()+"  "+pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds());
+}
+
+function clean(s){return s.replace(/[\x5c\/:*?"<>|]+/g,"-").replace(/\s+/g," ").trim()}
+function fileName(){var d=new Date();return d.getFullYear()+"_"+pad(d.getMonth()+1)+"_"+pad(d.getDate())+" - "+clean($("dir").value)+" - "+clean($("cod").value)+".jpg"}
+
+function render(src,w,h){
+  var c=document.createElement("canvas");c.width=w;c.height=h;
+  var x=c.getContext("2d");x.drawImage(src,0,0,w,h);
+  var m=Math.min(w,h), bw=Math.round(m*0.025);
+  x.strokeStyle="#ff7a00";x.lineWidth=bw;x.strokeRect(bw/2,bw/2,w-bw,h-bw);
+  var fs=Math.round(m*0.04);
+  x.font="bold "+fs+"px system-ui,Arial,sans-serif";x.textBaseline="bottom";
+  var t=stampText(), tw=x.measureText(t).width, pd=fs*0.4;
+  var bx=bw+pd, by=h-bw-pd;
+  x.fillStyle="rgba(0,0,0,.55)";x.fillRect(bx-pd,by-fs-pd,tw+pd*2,fs+pd*2);
+  x.fillStyle="#ff7a00";x.fillText(t,bx,by);
+  return c;
+}
+
+function addShot(canvas,name){
+  canvas.toBlob(function(b){
+    var url=URL.createObjectURL(b);n++;
+    var d=document.createElement("div");
+    d.innerHTML='<img alt="Foto"><a>Guardar</a>';
+    d.querySelector("img").src=url;
+    var a=d.querySelector("a");a.href=url;
+    a.download=name;
+    var t=document.createElement("a");t.href=url;t.download=a.download;document.body.appendChild(t);t.click();t.remove();
+    $("gal").insertBefore(d,$("gal").firstChild);
+  },"image/jpeg",0.92);
+}
+
+$("snap").onclick=function(){
+  var v=$("v");
+  if(!v.videoWidth){$("cerr").textContent="La cámara aún no está lista.";return}
+  if(!$("cod").value.trim()||!$("dir").value.trim()){$("cerr").textContent="Completá Código y Dirección antes de sacar la foto.";return}
+  $("cerr").textContent="";
+  addShot(render(v,v.videoWidth,v.videoHeight),fileName());
+};
+
+if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){})})}
+</script>
+</body>
+</html>
